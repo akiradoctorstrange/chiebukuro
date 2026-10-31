@@ -36,8 +36,28 @@
     <!-- Firebase Libraries -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, addDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { 
+            getAuth, 
+            setPersistence, 
+            browserLocalPersistence, 
+            onAuthStateChanged, 
+            GoogleAuthProvider, 
+            signInWithPopup, 
+            signInWithRedirect, 
+            getRedirectResult, 
+            signOut 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            doc, 
+            addDoc, 
+            updateDoc, 
+            onSnapshot, 
+            query, 
+            orderBy, 
+            serverTimestamp 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         window.db = null;
         window.auth = null;
@@ -47,6 +67,10 @@
         window.signInWithPopupFunc = signInWithPopup;
         window.signInWithRedirectFunc = signInWithRedirect;
         window.signOutFunc = signOut;
+        window.doc = doc;
+        window.collection = collection;
+        window.addDoc = addDoc;
+        window.updateDoc = updateDoc;
 
         const firebaseConfig = {
             apiKey: "AIzaSyD50XJN4WQTzLyqlR-7pIXzLBBduxZxIwQ",
@@ -62,6 +86,9 @@
             const app = initializeApp(firebaseConfig);
             window.db = getFirestore(app);
             window.auth = getAuth(app);
+
+            // Set local persistence
+            setPersistence(window.auth, browserLocalPersistence).catch(console.error);
 
             getRedirectResult(window.auth).then((result) => {
                 if (result && result.user && window.onGoogleSignInSuccess) {
@@ -81,7 +108,7 @@
                 }
             });
 
-            // Listen to live global Firestore collection
+            // Firestore real-time listener for questions
             const q = query(collection(window.db, "questions"), orderBy("createdAt", "desc"));
             onSnapshot(q, (snapshot) => {
                 window.questions = snapshot.docs.map(docSnap => ({
@@ -430,7 +457,7 @@
                             body: body,
                             likes: 0,
                             likedUsers: [],
-                            createdAt: window.serverTimestamp ? window.serverTimestamp() : Date.now()
+                            createdAt: Date.now()
                         });
                         showToast('質問を投稿しました！', 'success');
                     }
