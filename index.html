@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高校生知恵袋 - スチュディ・コミュニティ</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            200: '#c7d2fe',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                        },
+                        sakura: {
+                            500: '#ec4899',
+                            600: '#db2777',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    
+    <!-- Firebase Libraries -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        window.db = null;
+        window.auth = null;
+        window.currentUser = null;
+        window.isCloudReady = false;
+
+        window.GoogleAuthProviderClass = GoogleAuthProvider;
+        window.signInWithPopupFunc = signInWithPopup;
+        window.signInWithRedirectFunc = signInWithRedirect;
+        window.signOutFunc = signOut;
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD50XJN4WQTzLyqlR-7pIXzLBBduxZxIwQ",
+            authDomain: "sanjo-app-ec596.firebaseapp.com",
+            projectId: "sanjo-app-ec596",
+            storageBucket: "sanjo-app-ec596.firebasestorage.app",
+            messagingSenderId: "493721911930",
+            appId: "1:493721911930:web:971f61b1d43b4432d0b1c3",
+            measurementId: "G-N5YG2NBERK"
+        };
+
+        const appId = firebaseConfig.projectId;
+
+        try {
+            const app = initializeApp(firebaseConfig);
+            window.db = getFirestore(app);
+            window.auth = getAuth(app);
+
+            getRedirectResult(window.auth).then((result) => {
+                if (result && result.user && window.onGoogleSignInSuccess) {
+                    window.onGoogleSignInSuccess(result.user);
+                }
+            }).catch((err) => {
+                console.warn("Redirect result handler error:", err);
+            });
+
+            onAuthStateChanged(window.auth, (user) => {
+                if (user && !user.isAnonymous) {
+                    window.currentUser = user;
+                    window.isCloudReady = true;
+                    if (window.onGoogleSignInSuccess) window.onGoogleSignInSuccess(user);
+                } else {
+                    window.currentUser = null;
+                    if (window.onSignOutSuccess) window.onSignOutSuccess();
+                }
+            });
+        } catch (err) {
+            console.warn("Firebase init notice:", err);
+        }
+    </script>
+    <style>
+        html, body { height: 100%; width: 100%; margin: 0; padding: 0; }
+        body { font-family: 'Noto Sans JP', sans-serif; }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+        .glass-effect { backdrop-filter: blur(8px); background-color: rgba(255, 255, 255, 0.85); }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+    <!-- ログイン促しモーダル（初期状態：hidden） -->
+    <div id="auth-overlay" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-slate-100 text-center space-y-6 relative">
+            <button onclick="closeAuthModal()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-600 w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <div class="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-brand-600 to-sakura-500 flex items-center justify-center text-white font-black text-3xl shadow-lg">
+                知
+            </div>
+            <div>
+                <h2 class="text-2xl font-black bg-gradient-to-r from-brand-600 to-sakura-500 bg-clip-text text-transparent">高校生知恵袋</h2>
+                <p class="text-xs text-slate-500 font-medium mt-1">高校生のための学習＆学校生活Q&Aコミュニティ</p>
+            </div>
+
+            <div class="bg-brand-50/60 p-4 rounded-2xl border border-brand-100 text-left space-y-2">
+                <div class="text-xs font-bold text-brand-700 flex items-center space-x-1.5">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>質問投稿にはログインが必要です</span>
+                </div>
+                <p class="text-[11px] text-slate-600 leading-relaxed">
+                    質問や回答を行うにはGoogleアカウントでのログインが必要です。閲覧のみの場合はログインなしでもご利用いただけます。
+                </p>
+            </div>
+
+            <button onclick="window.signInWithGoogle()" class="w-full py-3.5 px-4 bg-white hover:bg-slate-50 border-2 border-slate-200 hover:border-brand-500 text-slate-700 font-bold text-sm rounded-2xl shadow-md flex items-center justify-center space-x-3 transition-all hover:shadow-lg active:scale-95">
+                <i class="fa-brands fa-google text-red-500 text-lg"></i>
+                <span>Googleアカウントでログイン</span>
+            </button>
+            
+            <p class="text-[10px] text-slate-400">ログインすることにより、利用規約およびプライバシーポリシーに同意したものとみなされます。</p>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="sticky top-0 z-30 glass-effect border-b border-slate-200 shadow-sm">
+        <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3 cursor-pointer" onclick="selectCategory('all')">
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-brand-600 to-sakura-500 flex items-center justify-center text-white font-black text-xl shadow-md transform hover:rotate-6 transition-transform">
+                    知
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-brand-600 to-sakura-500 bg-clip-text text-transparent leading-none">
+                        高校生知恵袋
+                    </h1>
+                    <span class="text-xs text-slate-500 font-medium">みんなで作る学習・生活Q&A</span>
+                </div>
+            </div>
+
+            <!-- Search Bar (Desktop) -->
+            <div class="hidden md:flex flex-1 max-w-md mx-8 relative">
+                <input type="text" id="search-input" onkeyup="handleSearch(event)" placeholder="教科、定期テスト、進路について検索..." 
+                       class="w-full pl-10 pr-4 py-2 bg-slate-100 hover:bg-slate-200/70 focus:bg-white border border-transparent focus:border-brand-500 rounded-full text-sm outline-none transition-all">
+                <i class="fa-solid font-black fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
+            </div>
+
+            <!-- User Actions & Profile Avatar -->
+            <div class="flex items-center space-x-3">
+                <button onclick="handleAskClick()" class="hidden sm:flex items-center space-x-2 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-700 hover:to-brand-600 text-white font-bold px-4 py-2 rounded-full text-sm shadow-md hover:shadow-lg transition-all active:scale-95">
+                    <i class="fa-solid fa-pen"></i>
+                    <span>質問する</span>
+                </button>
+                
+                <button onclick="openProfileModal()" class="relative group p-0.5 rounded-full hover:ring-2 hover:ring-brand-500 transition-all focus:outline-none" title="プロフィール設定">
+                    <img id="nav-avatar" src="https://api.dicebear.com/7.x/bottts/svg?seed=Guest" alt="User Avatar" class="w-10 h-10 rounded-full object-cover border-2 border-white shadow">
+                    <span id="nav-auth-badge" class="absolute bottom-0 right-0 w-3 h-3 bg-slate-400 border-2 border-white rounded-full"></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 max-w-5xl w-full mx-auto px-4 py-6 grid grid-cols-1 md:grid-cols-4 gap-6">
+        <!-- Sidebar Categories -->
+        <aside class="hidden md:block md:col-span-1 space-y-4">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-2">カテゴリー</h2>
+                <nav class="space-y-1" id="category-list">
+                    <!-- Dynamic Category Buttons -->
+                </nav>
+            </div>
+
+            <div class="bg-gradient-to-br from-indigo-50 to-pink-50 p-4 rounded-2xl border border-indigo-100 text-center">
+                <div class="inline-block p-3 bg-white rounded-full text-brand-600 shadow-sm mb-2">
+                    <i class="fa-solid fa-graduation-cap text-xl"></i>
+                </div>
+                <h3 class="font-bold text-sm text-slate-800">定期テスト対策実施中！</h3>
+                <p class="text-xs text-slate-600 mt-1">先輩のノートや解き方のコツをチェックしよう</p>
+            </div>
+        </aside>
+
+        <!-- Main Feed -->
+        <section class="md:col-span-3 space-y-4">
+            <!-- Mobile Category Scroll -->
+            <div class="flex md:hidden space-x-2 overflow-x-auto pb-2 custom-scrollbar" id="mobile-category-list">
+                <!-- Dynamic Mobile Category Buttons -->
+            </div>
+
+            <div id="questions-container" class="space-y-4">
+                <!-- Questions injected via JS -->
+            </div>
+        </section>
+    </main>
+
+    <!-- Floating Mobile Ask Button -->
+    <button onclick="handleAskClick()" class="sm:hidden fixed bottom-6 right-6 z-20 w-14 h-14 bg-gradient-to-r from-brand-600 to-sakura-500 text-white rounded-full shadow-lg flex items-center justify-center text-xl font-bold active:scale-90 transition-transform">
+        <i class="fa-solid fa-plus"></i>
+    </button>
+
+    <!-- Profile Modal -->
+    <div id="profile-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative">
+            <button onclick="closeProfileModal()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-600 w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            <div class="text-center mb-6">
+                <h3 class="text-xl font-extrabold text-slate-800">プロフィール設定</h3>
+                <p class="text-xs text-slate-500 mt-1">Googleアカウント連携と状態確認</p>
+            </div>
+            <div class="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
+                <div id="google-account-status"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ask Question Modal -->
+    <div id="ask-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative">
+            <button onclick="closeAskModal()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-600 w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            <h3 class="text-xl font-extrabold text-slate-800 mb-4">質問を投稿する</h3>
+            <form onsubmit="submitQuestion(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">カテゴリー</label>
+                    <select id="question-category" required class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none">
+                        <option value="数学">数学</option>
+                        <option value="英語">英語</option>
+                        <option value="国語">国語</option>
+                        <option value="理科">理科 (物理・化学・生物)</option>
+                        <option value="社会">社会 (歴史・地理・政経)</option>
+                        <option value="学校生活・進路">学校生活・進路</option>
+                        <option value="部活動">部活動</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">質問タイトル</label>
+                    <input type="text" id="question-title" required placeholder="例：二次関数の最大値・最小値の求め方がわかりません" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">詳しい内容</label>
+                    <textarea id="question-body" required rows="4" placeholder="教科書の○ページにある問題の解説が欲しいです..." class="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm outline-none resize-none"></textarea>
+                </div>
+                <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl shadow-md transition-all">質問を送信する</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed top-20 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+    <script>
+        const CATEGORIES = [
+            { id: 'all', name: 'すべてのカテゴリー', icon: 'fa-layer-group' },
+            { id: '数学', name: '数学', icon: 'fa-calculator' },
+            { id: '英語', name: '英語', icon: 'fa-language' },
+            { id: '国語', name: '国語', icon: 'fa-book-open' },
+            { id: '理科', name: '理科', icon: 'fa-flask' },
+            { id: '社会', name: '社会', icon: 'fa-earth-asia' },
+            { id: '学校生活・進路', name: '学校生活・進路', icon: 'fa-school' },
+            { id: '部活動', name: '部活動', icon: 'fa-baseball-bat-ball' }
+        ];
+
+        let selectedCategory = 'all';
+        let searchQuery = '';
+
+        let userProfile = {
+            id: '@user_' + Math.floor(Math.random() * 8999 + 1000),
+            name: "ゲスト",
+            email: "",
+            avatarUrl: "https://api.dicebear.com/7.x/bottts/svg?seed=Guest"
+        };
+
+        let questions = [
+            {
+                id: '1',
+                author: "さくら先輩",
+                category: "数学",
+                title: "三角関数の合成のコツを分かりやすく教えてほしいです！",
+                body: "a sinθ + b cosθ の合成公式がどうしても覚えられません。考え方のコツはありますか？",
+                time: "10分前"
+            }
+        ];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadUserProfile();
+            loadStoredQuestions();
+            renderCategories();
+            renderQuestions();
+            renderGoogleAccountStatus();
+        });
+
+        function renderCategories() {
+            const list = document.getElementById('category-list');
+            const mobileList = document.getElementById('mobile-category-list');
+
+            if (list) {
+                list.innerHTML = CATEGORIES.map(c => `
+                    <button onclick="selectCategory('${c.id}')" class="w-full flex items-center space-x-3 px-3 py-2 rounded-xl text-xs font-bold transition-all ${selectedCategory === c.id ? 'bg-brand-50 text-brand-600' : 'text-slate-600 hover:bg-slate-100'}">
+                        <i class="fa-solid ${c.icon} w-4 text-center"></i>
+                        <span>${c.name}</span>
+                    </button>
+                `).join('');
+            }
+
+            if (mobileList) {
+                mobileList.innerHTML = CATEGORIES.map(c => `
+                    <button onclick="selectCategory('${c.id}')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${selectedCategory === c.id ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 border border-slate-200'}">
+                        ${c.name}
+                    </button>
+                `).join('');
+            }
+        }
+
+        function selectCategory(id) {
+            selectedCategory = id;
+            renderCategories();
+            renderQuestions();
+        }
+
+        function handleSearch(e) {
+            searchQuery = e.target.value.toLowerCase();
+            renderQuestions();
+        }
+
+        function renderQuestions() {
+            const container = document.getElementById('questions-container');
+            if (!container) return;
+
+            let filtered = selectedCategory === 'all' 
+                ? questions 
+                : questions.filter(q => q.category === selectedCategory);
+
+            if (searchQuery) {
+                filtered = filtered.filter(q => 
+                    q.title.toLowerCase().includes(searchQuery) || 
+                    q.body.toLowerCase().includes(searchQuery)
+                );
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="bg-white p-8 rounded-2xl text-center text-slate-400 text-sm border border-slate-200">質問が見つかりませんでした。</div>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(q => `
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-1 rounded-md font-semibold">${q.category}</span>
+                        <span class="text-xs text-slate-400">${q.author} • ${q.time}</span>
+                    </div>
+                    <h3 class="font-bold text-slate-800 text-lg mb-1">${q.title}</h3>
+                    <p class="text-slate-600 text-sm whitespace-pre-line">${q.body}</p>
+                </div>
+            `).join('');
+        }
+
+        function handleAskClick() {
+            if (userProfile.email) {
+                document.getElementById('ask-modal').classList.remove('hidden');
+            } else {
+                document.getElementById('auth-overlay').classList.remove('hidden');
+            }
+        }
+
+        function closeAuthModal() { document.getElementById('auth-overlay').classList.add('hidden'); }
+        function openProfileModal() { document.getElementById('profile-modal').classList.remove('hidden'); }
+        function closeProfileModal() { document.getElementById('profile-modal').classList.add('hidden'); }
+        function closeAskModal() { document.getElementById('ask-modal').classList.add('hidden'); }
+
+        function submitQuestion(e) {
+            e.preventDefault();
+            const category = document.getElementById('question-category').value;
+            const title = document.getElementById('question-title').value.trim();
+            const body = document.getElementById('question-body').value.trim();
+
+            if (!title || !body) return;
+
+            const newQ = {
+                id: String(Date.now()),
+                author: userProfile.name || '高校生',
+                category: category,
+                title: title,
+                body: body,
+                time: 'たった今'
+            };
+
+            questions.unshift(newQ);
+            saveQuestionsLocally();
+            renderQuestions();
+            
+            document.getElementById('question-title').value = '';
+            document.getElementById('question-body').value = '';
+            closeAskModal();
+            showToast('質問を投稿しました！', 'success');
+        }
+
+        function loadUserProfile() {
+            const saved = localStorage.getItem('chiebukuro_user_profile');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (parsed && typeof parsed === 'object') userProfile = { ...userProfile, ...parsed };
+                } catch (e) {}
+            }
+        }
+
+        function saveUserProfile() {
+            localStorage.setItem('chiebukuro_user_profile', JSON.stringify(userProfile));
+        }
+
+        function loadStoredQuestions() {
+            const saved = localStorage.getItem('chiebukuro_questions');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    if (Array.isArray(parsed) && parsed.length > 0) questions = parsed;
+                } catch (e) {}
+            }
+        }
+
+        function saveQuestionsLocally() {
+            localStorage.setItem('chiebukuro_questions', JSON.stringify(questions));
+        }
+
+        window.signInWithGoogle = async function() {
+            try {
+                if (window.auth && window.GoogleAuthProviderClass) {
+                    const provider = new window.GoogleAuthProviderClass();
+                    try {
+                        await window.signInWithPopupFunc(window.auth, provider);
+                    } catch (err) {
+                        await window.signInWithRedirectFunc(window.auth, provider);
+                    }
+                }
+            } catch (error) {
+                console.error("Auth error:", error);
+            }
+        };
+
+        window.signOutAccount = async function() {
+            if (window.auth && window.signOutFunc) {
+                await window.signOutFunc(window.auth);
+                window.onSignOutSuccess();
+            }
+        };
+
+        window.onGoogleSignInSuccess = function(user) {
+            userProfile.email = user.email || "";
+            userProfile.name = user.displayName || userProfile.name;
+            userProfile.avatarUrl = user.photoURL || userProfile.avatarUrl;
+
+            saveUserProfile();
+            document.getElementById('auth-overlay').classList.add('hidden');
+            document.getElementById('nav-avatar').src = userProfile.avatarUrl;
+            document.getElementById('nav-auth-badge').className = "absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full";
+            renderGoogleAccountStatus();
+            showToast('ログインしました！', 'success');
+        };
+
+        window.onSignOutSuccess = function() {
+            userProfile.email = "";
+            saveUserProfile();
+            document.getElementById('nav-avatar').src = "https://api.dicebear.com/7.x/bottts/svg?seed=Guest";
+            document.getElementById('nav-auth-badge').className = "absolute bottom-0 right-0 w-3 h-3 bg-slate-400 border-2 border-white rounded-full";
+            renderGoogleAccountStatus();
+            showToast('ログアウトしました', 'info');
+        };
+
+        function renderGoogleAccountStatus() {
+            const container = document.getElementById('google-account-status');
+            if (!container) return;
+
+            if (userProfile.email) {
+                container.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="text-left">
+                            <div class="text-xs font-bold text-slate-800">Google連携中</div>
+                            <div class="text-[11px] text-slate-500">${userProfile.email}</div>
+                        </div>
+                        <button onclick="window.signOutAccount()" class="px-3 py-1.5 bg-slate-200 text-xs font-bold rounded-xl hover:bg-slate-300">ログアウト</button>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="text-left">
+                            <div class="text-xs font-bold text-slate-800">未サインイン</div>
+                            <div class="text-[11px] text-slate-500">Googleアカウントでログイン</div>
+                        </div>
+                        <button onclick="window.signInWithGoogle()" class="flex items-center space-x-2 px-3.5 py-2 bg-white border text-xs font-bold rounded-xl hover:bg-slate-50">
+                            <i class="fa-brands fa-google text-red-500"></i>
+                            <span>ログイン</span>
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            toast.className = `p-3 rounded-xl text-xs font-bold text-white shadow-lg pointer-events-auto transition-all transform translate-y-2 ${type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-emerald-500' : 'bg-slate-700'}`;
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+    </script>
+</body>
+</html>
