@@ -37,7 +37,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, addDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         window.db = null;
         window.auth = null;
@@ -80,6 +80,19 @@
                     if (window.onSignOutSuccess) window.onSignOutSuccess();
                 }
             });
+
+            // Listen to live global Firestore collection
+            const q = query(collection(window.db, "questions"), orderBy("createdAt", "desc"));
+            onSnapshot(q, (snapshot) => {
+                window.questions = snapshot.docs.map(docSnap => ({
+                    id: docSnap.id,
+                    ...docSnap.data()
+                }));
+                if (window.renderQuestions) window.renderQuestions();
+            }, (error) => {
+                console.warn("Firestore subscription notice:", error);
+            });
+
         } catch (err) {
             console.warn("Firebase init notice:", err);
         }
@@ -241,23 +254,10 @@
             avatarUrl: "https://api.dicebear.com/7.x/bottts/svg?seed=Guest"
         };
 
-        let questions = [
-            {
-                id: '1',
-                author: "さくら先輩",
-                authorEmail: "demo@school.ed.jp",
-                category: "数学",
-                title: "三角関数の合成のコツを分かりやすく教えてほしいです！",
-                body: "a sinθ + b cosθ の合成公式がどうしても覚えられません。コツはありますか？",
-                time: "10分前",
-                likes: 3,
-                likedUsers: []
-            }
-        ];
+        window.questions = [];
 
         window.addEventListener('DOMContentLoaded', () => {
             loadUserProfile();
-            loadStoredQuestions();
             renderCategories();
             renderQuestions();
             renderGoogleAccountStatus();
@@ -295,18 +295,18 @@
             renderQuestions();
         }
 
-        function renderQuestions() {
+        window.renderQuestions = function() {
             const container = document.getElementById('questions-container');
             if (!container) return;
 
             let filtered = selectedCategory === 'all' 
-                ? questions 
-                : questions.filter(q => q.category === selectedCategory);
+                ? window.questions 
+                : window.questions.filter(q => q.category === selectedCategory);
 
             if (searchQuery) {
                 filtered = filtered.filter(q => 
-                    q.title.toLowerCase().includes(searchQuery) || 
-                    q.body.toLowerCase().includes(searchQuery)
+                    (q.title || '').toLowerCase().includes(searchQuery) || 
+                    (q.body || '').toLowerCase().includes(searchQuery)
                 );
             }
 
@@ -323,8 +323,8 @@
                     <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
                         <div class="flex items-center justify-between">
                             <div class="flex items-center gap-2">
-                                <span class="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-1 rounded-md font-semibold">${q.category}</span>
-                                <span class="text-xs text-slate-400">${q.author} • ${q.time}</span>
+                                <span class="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-1 rounded-md font-semibold">${q.category || '全般'}</span>
+                                <span class="text-xs text-slate-400">${q.author || '匿名'}</span>
                             </div>
                             ${isAuthor ? `
                                 <button onclick="openEditModal('${q.id}')" class="text-xs text-brand-600 hover:text-brand-800 font-bold px-2 py-1 bg-brand-50 rounded-lg">
@@ -332,8 +332,8 @@
                                 </button>
                             ` : ''}
                         </div>
-                        <h3 class="font-bold text-slate-800 text-lg">${escapeHtml(q.title)}</h3>
-                        <p class="text-slate-600 text-sm whitespace-pre-line">${escapeHtml(q.body)}</p>
+                        <h3 class="font-bold text-slate-800 text-lg">${escapeHtml(q.title || '')}</h3>
+                        <p class="text-slate-600 text-sm whitespace-pre-line">${escapeHtml(q.body || '')}</p>
                         <div class="pt-2 flex items-center gap-4 border-t border-slate-100">
                             <button onclick="toggleLike('${q.id}')" class="flex items-center gap-1.5 text-xs font-bold ${isLiked ? 'text-pink-500' : 'text-slate-400 hover:text-slate-600'} transition-colors">
                                 <i class="fa-${isLiked ? 'solid' : 'regular'} fa-heart text-sm"></i>
@@ -343,29 +343,39 @@
                     </div>
                 `;
             }).join('');
-        }
+        };
 
-        function toggleLike(id) {
+        async function toggleLike(id) {
             if (!userProfile.email) {
                 document.getElementById('auth-overlay').classList.remove('hidden');
                 return;
             }
-            const q = questions.find(item => item.id === id);
+            const q = window.questions.find(item => item.id === id);
             if (!q) return;
 
-            if (!q.likedUsers) q.likedUsers = [];
-            const index = q.likedUsers.indexOf(userProfile.email);
+            let likedUsers = q.likedUsers ? [...q.likedUsers] : [];
+            const index = likedUsers.indexOf(userProfile.email);
+            let newLikes = q.likes || 0;
 
             if (index > -1) {
-                q.likedUsers.splice(index, 1);
-                q.likes = Math.max(0, (q.likes || 1) - 1);
+                likedUsers.splice(index, 1);
+                newLikes = Math.max(0, newLikes - 1);
             } else {
-                q.likedUsers.push(userProfile.email);
-                q.likes = (q.likes || 0) + 1;
+                likedUsers.push(userProfile.email);
+                newLikes += 1;
             }
 
-            saveQuestionsLocally();
-            renderQuestions();
+            if (window.db) {
+                try {
+                    const docRef = window.doc(window.db, "questions", id);
+                    await window.updateDoc(docRef, {
+                        likes: newLikes,
+                        likedUsers: likedUsers
+                    });
+                } catch (e) {
+                    console.error("Firestore update like error:", e);
+                }
+            }
         }
 
         function handleAskClick() {
@@ -381,18 +391,18 @@
         }
 
         function openEditModal(id) {
-            const q = questions.find(item => item.id === id);
+            const q = window.questions.find(item => item.id === id);
             if (!q) return;
 
             document.getElementById('edit-question-id').value = q.id;
             document.getElementById('modal-form-title').textContent = '質問を編集する';
-            document.getElementById('question-category').value = q.category;
-            document.getElementById('question-title').value = q.title;
-            document.getElementById('question-body').value = q.body;
+            document.getElementById('question-category').value = q.category || '数学';
+            document.getElementById('question-title').value = q.title || '';
+            document.getElementById('question-body').value = q.body || '';
             document.getElementById('ask-modal').classList.remove('hidden');
         }
 
-        function submitQuestion(e) {
+        async function submitQuestion(e) {
             e.preventDefault();
             const editId = document.getElementById('edit-question-id').value;
             const category = document.getElementById('question-category').value;
@@ -401,32 +411,35 @@
 
             if (!title || !body) return;
 
-            if (editId) {
-                const q = questions.find(item => item.id === editId);
-                if (q) {
-                    q.category = category;
-                    q.title = title;
-                    q.body = body;
-                    showToast('質問を更新しました！', 'success');
+            if (window.db) {
+                try {
+                    if (editId) {
+                        const docRef = window.doc(window.db, "questions", editId);
+                        await window.updateDoc(docRef, {
+                            category: category,
+                            title: title,
+                            body: body
+                        });
+                        showToast('質問を更新しました！', 'success');
+                    } else {
+                        await window.addDoc(window.collection(window.db, "questions"), {
+                            author: userProfile.name || '高校生',
+                            authorEmail: userProfile.email,
+                            category: category,
+                            title: title,
+                            body: body,
+                            likes: 0,
+                            likedUsers: [],
+                            createdAt: window.serverTimestamp ? window.serverTimestamp() : Date.now()
+                        });
+                        showToast('質問を投稿しました！', 'success');
+                    }
+                } catch (err) {
+                    console.error("Firestore submit error:", err);
+                    showToast('保存エラー: ' + err.message, 'error');
                 }
-            } else {
-                const newQ = {
-                    id: String(Date.now()),
-                    author: userProfile.name || '高校生',
-                    authorEmail: userProfile.email,
-                    category: category,
-                    title: title,
-                    body: body,
-                    time: 'たった今',
-                    likes: 0,
-                    likedUsers: []
-                };
-                questions.unshift(newQ);
-                showToast('質問を投稿しました！', 'success');
             }
 
-            saveQuestionsLocally();
-            renderQuestions();
             closeAskModal();
         }
 
@@ -451,20 +464,6 @@
 
         function saveUserProfile() {
             localStorage.setItem('chiebukuro_user_profile', JSON.stringify(userProfile));
-        }
-
-        function loadStoredQuestions() {
-            const saved = localStorage.getItem('chiebukuro_questions');
-            if (saved) {
-                try {
-                    const parsed = JSON.parse(saved);
-                    if (Array.isArray(parsed) && parsed.length > 0) questions = parsed;
-                } catch (e) {}
-            }
-        }
-
-        function saveQuestionsLocally() {
-            localStorage.setItem('chiebukuro_questions', JSON.stringify(questions));
         }
 
         window.signInWithGoogle = async function() {
