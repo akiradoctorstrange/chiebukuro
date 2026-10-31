@@ -36,13 +36,12 @@
     <!-- Firebase Libraries -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         window.db = null;
         window.auth = null;
         window.currentUser = null;
-        window.isCloudReady = false;
 
         window.GoogleAuthProviderClass = GoogleAuthProvider;
         window.signInWithPopupFunc = signInWithPopup;
@@ -58,8 +57,6 @@
             appId: "1:493721911930:web:971f61b1d43b4432d0b1c3",
             measurementId: "G-N5YG2NBERK"
         };
-
-        const appId = firebaseConfig.projectId;
 
         try {
             const app = initializeApp(firebaseConfig);
@@ -77,7 +74,6 @@
             onAuthStateChanged(window.auth, (user) => {
                 if (user && !user.isAnonymous) {
                     window.currentUser = user;
-                    window.isCloudReady = true;
                     if (window.onGoogleSignInSuccess) window.onGoogleSignInSuccess(user);
                 } else {
                     window.currentUser = null;
@@ -99,37 +95,28 @@
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
 
-    <!-- ログイン促しモーダル（初期状態：hidden） -->
+    <!-- Auth Prompt Modal -->
     <div id="auth-overlay" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl border border-slate-100 text-center space-y-6 relative">
             <button onclick="closeAuthModal()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-600 w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100">
                 <i class="fa-solid fa-xmark text-lg"></i>
             </button>
-
-            <div class="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-brand-600 to-sakura-500 flex items-center justify-center text-white font-black text-3xl shadow-lg">
-                知
-            </div>
+            <div class="w-16 h-16 mx-auto rounded-3xl bg-gradient-to-tr from-brand-600 to-sakura-500 flex items-center justify-center text-white font-black text-3xl shadow-lg">知</div>
             <div>
                 <h2 class="text-2xl font-black bg-gradient-to-r from-brand-600 to-sakura-500 bg-clip-text text-transparent">高校生知恵袋</h2>
                 <p class="text-xs text-slate-500 font-medium mt-1">高校生のための学習＆学校生活Q&Aコミュニティ</p>
             </div>
-
             <div class="bg-brand-50/60 p-4 rounded-2xl border border-brand-100 text-left space-y-2">
                 <div class="text-xs font-bold text-brand-700 flex items-center space-x-1.5">
                     <i class="fa-solid fa-shield-halved"></i>
-                    <span>質問投稿にはログインが必要です</span>
+                    <span>ログインが必要です</span>
                 </div>
-                <p class="text-[11px] text-slate-600 leading-relaxed">
-                    質問や回答を行うにはGoogleアカウントでのログインが必要です。閲覧のみの場合はログインなしでもご利用いただけます。
-                </p>
+                <p class="text-[11px] text-slate-600 leading-relaxed">質問の投稿や「いいね！」を行うにはGoogleアカウントでのログインが必要です。</p>
             </div>
-
-            <button onclick="window.signInWithGoogle()" class="w-full py-3.5 px-4 bg-white hover:bg-slate-50 border-2 border-slate-200 hover:border-brand-500 text-slate-700 font-bold text-sm rounded-2xl shadow-md flex items-center justify-center space-x-3 transition-all hover:shadow-lg active:scale-95">
+            <button onclick="window.signInWithGoogle()" class="w-full py-3.5 px-4 bg-white hover:bg-slate-50 border-2 border-slate-200 hover:border-brand-500 text-slate-700 font-bold text-sm rounded-2xl shadow-md flex items-center justify-center space-x-3 transition-all">
                 <i class="fa-brands fa-google text-red-500 text-lg"></i>
                 <span>Googleアカウントでログイン</span>
             </button>
-            
-            <p class="text-[10px] text-slate-400">ログインすることにより、利用規約およびプライバシーポリシーに同意したものとみなされます。</p>
         </div>
     </div>
 
@@ -137,31 +124,21 @@
     <header class="sticky top-0 z-30 glass-effect border-b border-slate-200 shadow-sm">
         <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
             <div class="flex items-center space-x-3 cursor-pointer" onclick="selectCategory('all')">
-                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-brand-600 to-sakura-500 flex items-center justify-center text-white font-black text-xl shadow-md transform hover:rotate-6 transition-transform">
-                    知
-                </div>
+                <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-brand-600 to-sakura-500 flex items-center justify-center text-white font-black text-xl shadow-md transform hover:rotate-6 transition-transform">知</div>
                 <div>
-                    <h1 class="text-lg font-bold bg-gradient-to-r from-brand-600 to-sakura-500 bg-clip-text text-transparent leading-none">
-                        高校生知恵袋
-                    </h1>
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-brand-600 to-sakura-500 bg-clip-text text-transparent leading-none">高校生知恵袋</h1>
                     <span class="text-xs text-slate-500 font-medium">みんなで作る学習・生活Q&A</span>
                 </div>
             </div>
-
-            <!-- Search Bar (Desktop) -->
             <div class="hidden md:flex flex-1 max-w-md mx-8 relative">
-                <input type="text" id="search-input" onkeyup="handleSearch(event)" placeholder="教科、定期テスト、進路について検索..." 
-                       class="w-full pl-10 pr-4 py-2 bg-slate-100 hover:bg-slate-200/70 focus:bg-white border border-transparent focus:border-brand-500 rounded-full text-sm outline-none transition-all">
+                <input type="text" id="search-input" onkeyup="handleSearch(event)" placeholder="教科、定期テスト、進路について検索..." class="w-full pl-10 pr-4 py-2 bg-slate-100 hover:bg-slate-200/70 focus:bg-white border border-transparent focus:border-brand-500 rounded-full text-sm outline-none transition-all">
                 <i class="fa-solid font-black fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
             </div>
-
-            <!-- User Actions & Profile Avatar -->
             <div class="flex items-center space-x-3">
-                <button onclick="handleAskClick()" class="hidden sm:flex items-center space-x-2 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-700 hover:to-brand-600 text-white font-bold px-4 py-2 rounded-full text-sm shadow-md hover:shadow-lg transition-all active:scale-95">
+                <button onclick="handleAskClick()" class="hidden sm:flex items-center space-x-2 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-700 hover:to-brand-600 text-white font-bold px-4 py-2 rounded-full text-sm shadow-md transition-all">
                     <i class="fa-solid fa-pen"></i>
                     <span>質問する</span>
                 </button>
-                
                 <button onclick="openProfileModal()" class="relative group p-0.5 rounded-full hover:ring-2 hover:ring-brand-500 transition-all focus:outline-none" title="プロフィール設定">
                     <img id="nav-avatar" src="https://api.dicebear.com/7.x/bottts/svg?seed=Guest" alt="User Avatar" class="w-10 h-10 rounded-full object-cover border-2 border-white shadow">
                     <span id="nav-auth-badge" class="absolute bottom-0 right-0 w-3 h-3 bg-slate-400 border-2 border-white rounded-full"></span>
@@ -172,39 +149,21 @@
 
     <!-- Main Content Area -->
     <main class="flex-1 max-w-5xl w-full mx-auto px-4 py-6 grid grid-cols-1 md:grid-cols-4 gap-6">
-        <!-- Sidebar Categories -->
         <aside class="hidden md:block md:col-span-1 space-y-4">
             <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                 <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-2">カテゴリー</h2>
-                <nav class="space-y-1" id="category-list">
-                    <!-- Dynamic Category Buttons -->
-                </nav>
-            </div>
-
-            <div class="bg-gradient-to-br from-indigo-50 to-pink-50 p-4 rounded-2xl border border-indigo-100 text-center">
-                <div class="inline-block p-3 bg-white rounded-full text-brand-600 shadow-sm mb-2">
-                    <i class="fa-solid fa-graduation-cap text-xl"></i>
-                </div>
-                <h3 class="font-bold text-sm text-slate-800">定期テスト対策実施中！</h3>
-                <p class="text-xs text-slate-600 mt-1">先輩のノートや解き方のコツをチェックしよう</p>
+                <nav class="space-y-1" id="category-list"></nav>
             </div>
         </aside>
 
-        <!-- Main Feed -->
         <section class="md:col-span-3 space-y-4">
-            <!-- Mobile Category Scroll -->
-            <div class="flex md:hidden space-x-2 overflow-x-auto pb-2 custom-scrollbar" id="mobile-category-list">
-                <!-- Dynamic Mobile Category Buttons -->
-            </div>
-
-            <div id="questions-container" class="space-y-4">
-                <!-- Questions injected via JS -->
-            </div>
+            <div class="flex md:hidden space-x-2 overflow-x-auto pb-2 custom-scrollbar" id="mobile-category-list"></div>
+            <div id="questions-container" class="space-y-4"></div>
         </section>
     </main>
 
-    <!-- Floating Mobile Ask Button -->
-    <button onclick="handleAskClick()" class="sm:hidden fixed bottom-6 right-6 z-20 w-14 h-14 bg-gradient-to-r from-brand-600 to-sakura-500 text-white rounded-full shadow-lg flex items-center justify-center text-xl font-bold active:scale-90 transition-transform">
+    <!-- Floating Mobile Button -->
+    <button onclick="handleAskClick()" class="sm:hidden fixed bottom-6 right-6 z-20 w-14 h-14 bg-gradient-to-r from-brand-600 to-sakura-500 text-white rounded-full shadow-lg flex items-center justify-center text-xl font-bold">
         <i class="fa-solid fa-plus"></i>
     </button>
 
@@ -216,7 +175,6 @@
             </button>
             <div class="text-center mb-6">
                 <h3 class="text-xl font-extrabold text-slate-800">プロフィール設定</h3>
-                <p class="text-xs text-slate-500 mt-1">Googleアカウント連携と状態確認</p>
             </div>
             <div class="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
                 <div id="google-account-status"></div>
@@ -224,40 +182,41 @@
         </div>
     </div>
 
-    <!-- Ask Question Modal -->
+    <!-- Ask/Edit Modal -->
     <div id="ask-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm hidden">
         <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 relative">
             <button onclick="closeAskModal()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-600 w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100">
                 <i class="fa-solid fa-xmark text-lg"></i>
             </button>
-            <h3 class="text-xl font-extrabold text-slate-800 mb-4">質問を投稿する</h3>
+            <h3 id="modal-form-title" class="text-xl font-extrabold text-slate-800 mb-4">質問を投稿する</h3>
             <form onsubmit="submitQuestion(event)" class="space-y-4">
+                <input type="hidden" id="edit-question-id" value="">
                 <div>
                     <label class="block text-xs font-bold text-slate-700 mb-1">カテゴリー</label>
                     <select id="question-category" required class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm outline-none">
                         <option value="数学">数学</option>
                         <option value="英語">英語</option>
                         <option value="国語">国語</option>
-                        <option value="理科">理科 (物理・化学・生物)</option>
-                        <option value="社会">社会 (歴史・地理・政経)</option>
+                        <option value="理科">理科</option>
+                        <option value="社会">社会</option>
                         <option value="学校生活・進路">学校生活・進路</option>
                         <option value="部活動">部活動</option>
                     </select>
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-slate-700 mb-1">質問タイトル</label>
-                    <input type="text" id="question-title" required placeholder="例：二次関数の最大値・最小値の求め方がわかりません" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm outline-none">
+                    <input type="text" id="question-title" required placeholder="例：二次関数の最大値の求め方" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm outline-none">
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-slate-700 mb-1">詳しい内容</label>
-                    <textarea id="question-body" required rows="4" placeholder="教科書の○ページにある問題の解説が欲しいです..." class="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm outline-none resize-none"></textarea>
+                    <textarea id="question-body" required rows="4" placeholder="詳しい内容を入力..." class="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm outline-none resize-none"></textarea>
                 </div>
-                <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl shadow-md transition-all">質問を送信する</button>
+                <button type="submit" class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-bold rounded-xl shadow-md transition-all">保存・送信する</button>
             </form>
         </div>
     </div>
 
-    <!-- Toast Container -->
+    <!-- Toast Notifications -->
     <div id="toast-container" class="fixed top-20 right-5 z-50 space-y-2 pointer-events-none"></div>
 
     <script>
@@ -276,7 +235,7 @@
         let searchQuery = '';
 
         let userProfile = {
-            id: '@user_' + Math.floor(Math.random() * 8999 + 1000),
+            id: '',
             name: "ゲスト",
             email: "",
             avatarUrl: "https://api.dicebear.com/7.x/bottts/svg?seed=Guest"
@@ -286,10 +245,13 @@
             {
                 id: '1',
                 author: "さくら先輩",
+                authorEmail: "demo@school.ed.jp",
                 category: "数学",
                 title: "三角関数の合成のコツを分かりやすく教えてほしいです！",
-                body: "a sinθ + b cosθ の合成公式がどうしても覚えられません。考え方のコツはありますか？",
-                time: "10分前"
+                body: "a sinθ + b cosθ の合成公式がどうしても覚えられません。コツはありますか？",
+                time: "10分前",
+                likes: 3,
+                likedUsers: []
             }
         ];
 
@@ -313,7 +275,6 @@
                     </button>
                 `).join('');
             }
-
             if (mobileList) {
                 mobileList.innerHTML = CATEGORIES.map(c => `
                     <button onclick="selectCategory('${c.id}')" class="whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${selectedCategory === c.id ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 border border-slate-200'}">
@@ -354,24 +315,119 @@
                 return;
             }
 
-            container.innerHTML = filtered.map(q => `
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-1 rounded-md font-semibold">${q.category}</span>
-                        <span class="text-xs text-slate-400">${q.author} • ${q.time}</span>
+            container.innerHTML = filtered.map(q => {
+                const isLiked = userProfile.email && q.likedUsers && q.likedUsers.includes(userProfile.email);
+                const isAuthor = userProfile.email && q.authorEmail === userProfile.email;
+
+                return `
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-1 rounded-md font-semibold">${q.category}</span>
+                                <span class="text-xs text-slate-400">${q.author} • ${q.time}</span>
+                            </div>
+                            ${isAuthor ? `
+                                <button onclick="openEditModal('${q.id}')" class="text-xs text-brand-600 hover:text-brand-800 font-bold px-2 py-1 bg-brand-50 rounded-lg">
+                                    <i class="fa-solid fa-pen-to-square mr-1"></i>編集
+                                </button>
+                            ` : ''}
+                        </div>
+                        <h3 class="font-bold text-slate-800 text-lg">${escapeHtml(q.title)}</h3>
+                        <p class="text-slate-600 text-sm whitespace-pre-line">${escapeHtml(q.body)}</p>
+                        <div class="pt-2 flex items-center gap-4 border-t border-slate-100">
+                            <button onclick="toggleLike('${q.id}')" class="flex items-center gap-1.5 text-xs font-bold ${isLiked ? 'text-pink-500' : 'text-slate-400 hover:text-slate-600'} transition-colors">
+                                <i class="fa-${isLiked ? 'solid' : 'regular'} fa-heart text-sm"></i>
+                                <span>${q.likes || 0}</span>
+                            </button>
+                        </div>
                     </div>
-                    <h3 class="font-bold text-slate-800 text-lg mb-1">${q.title}</h3>
-                    <p class="text-slate-600 text-sm whitespace-pre-line">${q.body}</p>
-                </div>
-            `).join('');
+                `;
+            }).join('');
+        }
+
+        function toggleLike(id) {
+            if (!userProfile.email) {
+                document.getElementById('auth-overlay').classList.remove('hidden');
+                return;
+            }
+            const q = questions.find(item => item.id === id);
+            if (!q) return;
+
+            if (!q.likedUsers) q.likedUsers = [];
+            const index = q.likedUsers.indexOf(userProfile.email);
+
+            if (index > -1) {
+                q.likedUsers.splice(index, 1);
+                q.likes = Math.max(0, (q.likes || 1) - 1);
+            } else {
+                q.likedUsers.push(userProfile.email);
+                q.likes = (q.likes || 0) + 1;
+            }
+
+            saveQuestionsLocally();
+            renderQuestions();
         }
 
         function handleAskClick() {
             if (userProfile.email) {
+                document.getElementById('edit-question-id').value = '';
+                document.getElementById('modal-form-title').textContent = '質問を投稿する';
+                document.getElementById('question-title').value = '';
+                document.getElementById('question-body').value = '';
                 document.getElementById('ask-modal').classList.remove('hidden');
             } else {
                 document.getElementById('auth-overlay').classList.remove('hidden');
             }
+        }
+
+        function openEditModal(id) {
+            const q = questions.find(item => item.id === id);
+            if (!q) return;
+
+            document.getElementById('edit-question-id').value = q.id;
+            document.getElementById('modal-form-title').textContent = '質問を編集する';
+            document.getElementById('question-category').value = q.category;
+            document.getElementById('question-title').value = q.title;
+            document.getElementById('question-body').value = q.body;
+            document.getElementById('ask-modal').classList.remove('hidden');
+        }
+
+        function submitQuestion(e) {
+            e.preventDefault();
+            const editId = document.getElementById('edit-question-id').value;
+            const category = document.getElementById('question-category').value;
+            const title = document.getElementById('question-title').value.trim();
+            const body = document.getElementById('question-body').value.trim();
+
+            if (!title || !body) return;
+
+            if (editId) {
+                const q = questions.find(item => item.id === editId);
+                if (q) {
+                    q.category = category;
+                    q.title = title;
+                    q.body = body;
+                    showToast('質問を更新しました！', 'success');
+                }
+            } else {
+                const newQ = {
+                    id: String(Date.now()),
+                    author: userProfile.name || '高校生',
+                    authorEmail: userProfile.email,
+                    category: category,
+                    title: title,
+                    body: body,
+                    time: 'たった今',
+                    likes: 0,
+                    likedUsers: []
+                };
+                questions.unshift(newQ);
+                showToast('質問を投稿しました！', 'success');
+            }
+
+            saveQuestionsLocally();
+            renderQuestions();
+            closeAskModal();
         }
 
         function closeAuthModal() { document.getElementById('auth-overlay').classList.add('hidden'); }
@@ -379,31 +435,8 @@
         function closeProfileModal() { document.getElementById('profile-modal').classList.add('hidden'); }
         function closeAskModal() { document.getElementById('ask-modal').classList.add('hidden'); }
 
-        function submitQuestion(e) {
-            e.preventDefault();
-            const category = document.getElementById('question-category').value;
-            const title = document.getElementById('question-title').value.trim();
-            const body = document.getElementById('question-body').value.trim();
-
-            if (!title || !body) return;
-
-            const newQ = {
-                id: String(Date.now()),
-                author: userProfile.name || '高校生',
-                category: category,
-                title: title,
-                body: body,
-                time: 'たった今'
-            };
-
-            questions.unshift(newQ);
-            saveQuestionsLocally();
-            renderQuestions();
-            
-            document.getElementById('question-title').value = '';
-            document.getElementById('question-body').value = '';
-            closeAskModal();
-            showToast('質問を投稿しました！', 'success');
+        function escapeHtml(str) {
+            return (str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
         }
 
         function loadUserProfile() {
@@ -466,6 +499,7 @@
             document.getElementById('nav-avatar').src = userProfile.avatarUrl;
             document.getElementById('nav-auth-badge').className = "absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full";
             renderGoogleAccountStatus();
+            renderQuestions();
             showToast('ログインしました！', 'success');
         };
 
@@ -475,6 +509,7 @@
             document.getElementById('nav-avatar').src = "https://api.dicebear.com/7.x/bottts/svg?seed=Guest";
             document.getElementById('nav-auth-badge').className = "absolute bottom-0 right-0 w-3 h-3 bg-slate-400 border-2 border-white rounded-full";
             renderGoogleAccountStatus();
+            renderQuestions();
             showToast('ログアウトしました', 'info');
         };
 
