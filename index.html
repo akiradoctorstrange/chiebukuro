@@ -87,7 +87,6 @@
             window.db = getFirestore(app);
             window.auth = getAuth(app);
 
-            // Set local persistence
             setPersistence(window.auth, browserLocalPersistence).catch(console.error);
 
             getRedirectResult(window.auth).then((result) => {
@@ -108,7 +107,6 @@
                 }
             });
 
-            // Firestore real-time listener for questions
             const q = query(collection(window.db, "questions"), orderBy("createdAt", "desc"));
             onSnapshot(q, (snapshot) => {
                 window.questions = snapshot.docs.map(docSnap => ({
@@ -151,7 +149,7 @@
                     <i class="fa-solid fa-shield-halved"></i>
                     <span>ログインが必要です</span>
                 </div>
-                <p class="text-[11px] text-slate-600 leading-relaxed">質問の投稿や「いいね！」を行うにはGoogleアカウントでのログインが必要です。</p>
+                <p class="text-[11px] text-slate-600 leading-relaxed">質問の投稿、回答、および「いいね！」を行うにはGoogleアカウントでのログインが必要です。</p>
             </div>
             <button onclick="window.signInWithGoogle()" class="w-full py-3.5 px-4 bg-white hover:bg-slate-50 border-2 border-slate-200 hover:border-brand-500 text-slate-700 font-bold text-sm rounded-2xl shadow-md flex items-center justify-center space-x-3 transition-all">
                 <i class="fa-brands fa-google text-red-500 text-lg"></i>
@@ -345,9 +343,10 @@
             container.innerHTML = filtered.map(q => {
                 const isLiked = userProfile.email && q.likedUsers && q.likedUsers.includes(userProfile.email);
                 const isAuthor = userProfile.email && q.authorEmail === userProfile.email;
+                const answersList = q.answers || [];
 
                 return `
-                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+                    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                         <div class="flex items-center justify-between">
                             <div class="flex items-center gap-2">
                                 <span class="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-1 rounded-md font-semibold">${q.category || '全般'}</span>
@@ -359,18 +358,87 @@
                                 </button>
                             ` : ''}
                         </div>
+                        
                         <h3 class="font-bold text-slate-800 text-lg">${escapeHtml(q.title || '')}</h3>
                         <p class="text-slate-600 text-sm whitespace-pre-line">${escapeHtml(q.body || '')}</p>
-                        <div class="pt-2 flex items-center gap-4 border-t border-slate-100">
+                        
+                        <div class="pt-2 flex items-center justify-between border-t border-slate-100">
                             <button onclick="toggleLike('${q.id}')" class="flex items-center gap-1.5 text-xs font-bold ${isLiked ? 'text-pink-500' : 'text-slate-400 hover:text-slate-600'} transition-colors">
                                 <i class="fa-${isLiked ? 'solid' : 'regular'} fa-heart text-sm"></i>
                                 <span>${q.likes || 0}</span>
                             </button>
+                            <span class="text-xs text-slate-400 font-medium">${answersList.length} 件の回答</span>
+                        </div>
+
+                        <!-- Answers Section -->
+                        <div class="bg-slate-50 p-4 rounded-xl space-y-3">
+                            <h4 class="text-xs font-bold text-slate-500">回答一覧 (${answersList.length})</h4>
+                            
+                            ${answersList.length === 0 ? `
+                                <p class="text-xs text-slate-400 py-1">まだ回答はありません。最初の回答を書いてみましょう！</p>
+                            ` : `
+                                <div class="space-y-2">
+                                    ${answersList.map(a => `
+                                        <div class="bg-white p-3 rounded-lg border border-slate-200 space-y-1">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-xs font-bold text-slate-700">${escapeHtml(a.author || '高校生')}</span>
+                                            </div>
+                                            <p class="text-xs text-slate-600 whitespace-pre-line">${escapeHtml(a.body || '')}</p>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `}
+
+                            <!-- Answer Form -->
+                            <form onsubmit="submitAnswer(event, '${q.id}')" class="flex gap-2 pt-2">
+                                <input type="text" id="answer-input-${q.id}" required placeholder="回答を入力..." class="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none focus:border-brand-500">
+                                <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white font-bold px-3 py-2 rounded-xl text-xs shadow-sm transition-all">回答する</button>
+                            </form>
                         </div>
                     </div>
                 `;
             }).join('');
         };
+
+        async function submitAnswer(e, questionId) {
+            e.preventDefault();
+            if (!userProfile.email) {
+                document.getElementById('auth-overlay').classList.remove('hidden');
+                return;
+            }
+
+            const input = document.getElementById(`answer-input-${questionId}`);
+            if (!input) return;
+
+            const text = input.value.trim();
+            if (!text) return;
+
+            const q = window.questions.find(item => item.id === questionId);
+            if (!q) return;
+
+            const currentAnswers = q.answers ? [...q.answers] : [];
+            currentAnswers.push({
+                id: String(Date.now()),
+                author: userProfile.name || '高校生',
+                authorEmail: userProfile.email,
+                body: text,
+                createdAt: Date.now()
+            });
+
+            if (window.db) {
+                try {
+                    const docRef = window.doc(window.db, "questions", questionId);
+                    await window.updateDoc(docRef, {
+                        answers: currentAnswers
+                    });
+                    input.value = '';
+                    showToast('回答を投稿しました！', 'success');
+                } catch (err) {
+                    console.error("Answer submission error:", err);
+                    showToast('回答の送信に失敗しました', 'error');
+                }
+            }
+        }
 
         async function toggleLike(id) {
             if (!userProfile.email) {
@@ -457,6 +525,7 @@
                             body: body,
                             likes: 0,
                             likedUsers: [],
+                            answers: [],
                             createdAt: Date.now()
                         });
                         showToast('質問を投稿しました！', 'success');
