@@ -323,6 +323,7 @@
                         <option value="社会">社会</option>
                         <option value="学校生活・進路">学校生活・進路</option>
                         <option value="部活動">部活動</option>
+                        <option value="その他">その他</option>
                     </select>
                 </div>
                 <div>
@@ -350,7 +351,8 @@
             { id: '理科', name: '理科', icon: 'fa-flask' },
             { id: '社会', name: '社会', icon: 'fa-earth-asia' },
             { id: '学校生活・進路', name: '学校生活・進路', icon: 'fa-school' },
-            { id: '部活動', name: '部活動', icon: 'fa-baseball-bat-ball' }
+            { id: '部活動', name: '部活動', icon: 'fa-baseball-bat-ball' },
+            { id: 'その他', name: 'その他', icon: 'fa-ellipsis' }
         ];
 
         const PRESET_AVATARS = [
@@ -486,19 +488,16 @@
                 : (window.userProfile.avatarUrl || "https://api.dicebear.com/7.x/bottts/svg?seed=Student1");
         }
 
-        // 全ユーザーの最新プロフィールをリアルタイム解決する関数
         function resolveAuthorDisplay(email, fallbackName, fallbackAvatar) {
             const key = normalizeEmail(email);
             const myKey = normalizeEmail(window.userProfile.email);
 
-            // 自分自身の場合
             if (myKey && key === myKey) {
                 return {
                     name: getEffectiveDisplayName(),
                     avatar: getEffectiveAvatar()
                 };
             }
-            // 他ユーザーの場合はFirestoreのusersマップからリアルタイム取得
             if (key && window.userProfilesMap && window.userProfilesMap[key]) {
                 const live = window.userProfilesMap[key];
                 if (live.isAnonymous) {
@@ -572,7 +571,6 @@
                     const effectiveName = getEffectiveDisplayName();
                     const effectiveAvatar = getEffectiveAvatar();
 
-                    // 1. usersコレクションへ保存（他ユーザーの画面に即座に反映させる）
                     await window.setDoc(window.doc(window.db, "users", myKey), {
                         email: myKey,
                         name: window.userProfile.name,
@@ -581,7 +579,6 @@
                         updatedAt: Date.now()
                     }, { merge: true });
 
-                    // 2. 過去の質問・回答ドキュメント内のデータも一括更新
                     const batch = window.writeBatch(window.db);
                     let hasUpdates = false;
 
@@ -981,7 +978,6 @@
                     if (user.displayName) window.userProfile.name = user.displayName;
                     if (user.photoURL) window.userProfile.avatarUrl = user.photoURL;
                 }
-                // 初回ログイン時にusersコレクションへ初期登録
                 if (window.db && myKey) {
                     try {
                         await window.setDoc(window.doc(window.db, "users", myKey), {
