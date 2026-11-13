@@ -51,9 +51,11 @@
             getFirestore, 
             collection, 
             doc, 
+            setDoc,
             addDoc, 
             updateDoc, 
             deleteDoc,
+            writeBatch,
             onSnapshot, 
             query, 
             orderBy 
@@ -68,10 +70,12 @@
         window.signInWithRedirectFunc = signInWithRedirect;
         window.signOutFunc = signOut;
         window.doc = doc;
+        window.setDoc = setDoc;
         window.collection = collection;
         window.addDoc = addDoc;
         window.updateDoc = updateDoc;
         window.deleteDoc = deleteDoc;
+        window.writeBatch = writeBatch;
 
         const firebaseConfig = {
             apiKey: "AIzaSyD50XJN4WQTzLyqlR-7pIXzLBBduxZxIwQ",
@@ -108,6 +112,25 @@
                 }
             });
 
+            // 全ユーザーの最新プロフィールをリアルタイム監視
+            window.userProfilesMap = {};
+            onSnapshot(collection(window.db, "users"), (snapshot) => {
+                snapshot.docs.forEach(docSnap => {
+                    window.userProfilesMap[docSnap.id] = docSnap.data();
+                });
+                // 自分のプロフィールがクラウドにあれば同期
+                if (window.userProfile && window.userProfile.email && window.userProfilesMap[window.userProfile.email]) {
+                    const cloudProf = window.userProfilesMap[window.userProfile.email];
+                    window.userProfile = { ...window.userProfile, ...cloudProf };
+                    localStorage.setItem('chiebukuro_user_profile', JSON.stringify(window.userProfile));
+                    if (window.updateNavAvatar) window.updateNavAvatar();
+                }
+                if (window.renderQuestions) window.renderQuestions();
+            }, (error) => {
+                console.warn("Users subscription notice:", error);
+            });
+
+            // 質問一覧をリアルタイム監視
             const q = query(collection(window.db, "questions"), orderBy("createdAt", "desc"));
             onSnapshot(q, (snapshot) => {
                 window.questions = snapshot.docs.map(docSnap => ({
@@ -214,7 +237,7 @@
             </button>
             <div class="text-center mb-5">
                 <h3 class="text-xl font-extrabold text-slate-800">プロフィール設定</h3>
-                <p class="text-xs text-slate-500 mt-1">表示名・匿名モード・アイコンをカスタマイズ</p>
+                <p class="text-xs text-slate-500 mt-1">変更すると過去の投稿の表示もすべて最新のプロフィールに更新されます</p>
             </div>
 
             <!-- Google Account Status -->
@@ -251,7 +274,7 @@
                             <i class="fa-solid fa-user-secret text-sm"></i>
                         </div>
                         <div>
-                            <div class="text-xs font-bold text-slate-800">匿名モードで投稿する</div>
+                            <div class="text-xs font-bold text-slate-800">匿名モードにする</div>
                             <div class="text-[11px] text-slate-500">ONにすると名前が「匿名」として表示されます</div>
                         </div>
                     </div>
@@ -267,8 +290,8 @@
                     <input type="text" id="profile-name-input" maxlength="20" required placeholder="表示する名前を入力" class="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm outline-none focus:border-brand-500 disabled:bg-slate-100 disabled:text-slate-400">
                 </div>
 
-                <button type="submit" class="w-full py-3 bg-gradient-to-r from-brand-600 to-sakura-500 hover:from-brand-700 hover:to-sakura-600 text-white font-bold rounded-xl shadow-md transition-all">
-                    設定を保存する
+                <button type="submit" id="save-profile-btn" class="w-full py-3 bg-gradient-to-r from-brand-600 to-sakura-500 hover:from-brand-700 hover:to-sakura-600 text-white font-bold rounded-xl shadow-md transition-all">
+                    設定を保存して投稿にも反映する
                 </button>
             </form>
         </div>
@@ -336,7 +359,7 @@
         let searchQuery = '';
         let tempAvatarUrl = '';
 
-        let userProfile = {
+        window.userProfile = {
             id: '',
             name: "三条生",
             email: "",
@@ -346,6 +369,7 @@
         };
 
         window.questions = [];
+        window.userProfilesMap = {};
 
         window.addEventListener('DOMContentLoaded', () => {
             loadUserProfile();
@@ -401,7 +425,7 @@
                 const img = new Image();
                 img.onload = function() {
                     const canvas = document.createElement('canvas');
-                    const maxSize = 160;
+                    const maxSize = 140;
                     let width = img.width;
                     let height = img.height;
 
@@ -421,7 +445,7 @@
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
                     tempAvatarUrl = compressedDataUrl;
                     document.getElementById('modal-avatar-preview').src = compressedDataUrl;
                 };
@@ -434,37 +458,66 @@
             const nameInput = document.getElementById('profile-name-input');
             if (isAnon) {
                 nameInput.disabled = true;
-                tempAvatarUrl = "https://api.dicebear.com/7.x/bottts/svg?seed=Anonymous";
-                document.getElementById('modal-avatar-preview').src = tempAvatarUrl;
+                document.getElementById('modal-avatar-preview').src = "https://api.dicebear.com/7.x/bottts/svg?seed=Anonymous";
             } else {
                 nameInput.disabled = false;
+                document.getElementById('modal-avatar-preview').src = tempAvatarUrl || window.userProfile.avatarUrl;
             }
         }
 
         function getEffectiveDisplayName() {
-            return userProfile.isAnonymous ? "匿名" : (userProfile.name || "三条生");
+            return window.userProfile.isAnonymous ? "匿名" : (window.userProfile.name || "三条生");
         }
 
         function getEffectiveAvatar() {
-            return userProfile.isAnonymous
+            return window.userProfile.isAnonymous
                 ? "https://api.dicebear.com/7.x/bottts/svg?seed=Anonymous"
-                : (userProfile.avatarUrl || "https://api.dicebear.com/7.x/bottts/svg?seed=Student1");
+                : (window.userProfile.avatarUrl || "https://api.dicebear.com/7.x/bottts/svg?seed=Student1");
         }
 
-        function updateNavAvatar() {
+        // 最新のユーザープロフィールをリアルタイム解決するヘルパー関数
+        function resolveAuthorDisplay(email, fallbackName, fallbackAvatar) {
+            // 自分自身の場合は即座に最新のローカル状態を優先
+            if (window.userProfile.email && email === window.userProfile.email) {
+                return {
+                    name: getEffectiveDisplayName(),
+                    avatar: getEffectiveAvatar()
+                };
+            }
+            // 他ユーザーの場合はFirestoreのusersマップから最新情報を取得
+            if (email && window.userProfilesMap && window.userProfilesMap[email]) {
+                const live = window.userProfilesMap[email];
+                if (live.isAnonymous) {
+                    return {
+                        name: "匿名",
+                        avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Anonymous"
+                    };
+                }
+                return {
+                    name: live.name || fallbackName || "三条生",
+                    avatar: live.avatarUrl || fallbackAvatar || "https://api.dicebear.com/7.x/bottts/svg?seed=Student1"
+                };
+            }
+            return {
+                name: fallbackName || "匿名",
+                avatar: fallbackAvatar || "https://api.dicebear.com/7.x/bottts/svg?seed=Student1"
+            };
+        }
+
+        window.updateNavAvatar = function() {
             const navImg = document.getElementById('nav-avatar');
             if (navImg) {
-                navImg.src = userProfile.email ? getEffectiveAvatar() : "https://api.dicebear.com/7.x/bottts/svg?seed=Guest";
+                navImg.src = window.userProfile.email ? getEffectiveAvatar() : "https://api.dicebear.com/7.x/bottts/svg?seed=Guest";
             }
-        }
+        };
 
         function openProfileModal() {
-            tempAvatarUrl = userProfile.avatarUrl;
+            tempAvatarUrl = window.userProfile.avatarUrl;
             document.getElementById('modal-avatar-preview').src = getEffectiveAvatar();
-            document.getElementById('profile-name-input').value = userProfile.name || "三条生";
+            document.getElementById('profile-name-input').value = window.userProfile.name || "三条生";
             const anonToggle = document.getElementById('profile-anonymous-toggle');
-            anonToggle.checked = !!userProfile.isAnonymous;
-            document.getElementById('profile-name-input').disabled = !!userProfile.isAnonymous;
+            anonToggle.checked = !!window.userProfile.isAnonymous;
+            document.getElementById('profile-name-input').disabled = !!window.userProfile.isAnonymous;
 
             renderGoogleAccountStatus();
             document.getElementById('profile-modal').classList.remove('hidden');
@@ -474,35 +527,102 @@
             document.getElementById('profile-modal').classList.add('hidden');
         }
 
-        function saveProfileSettings(e) {
+        async function saveProfileSettings(e) {
             e.preventDefault();
             const isAnon = document.getElementById('profile-anonymous-toggle').checked;
             const newName = document.getElementById('profile-name-input').value.trim();
+            const btn = document.getElementById('save-profile-btn');
 
-            userProfile.isAnonymous = isAnon;
+            window.userProfile.isAnonymous = isAnon;
             if (!isAnon && newName) {
-                userProfile.name = newName;
+                window.userProfile.name = newName;
             }
-            if (tempAvatarUrl) {
-                userProfile.avatarUrl = tempAvatarUrl;
+            if (!isAnon && tempAvatarUrl) {
+                window.userProfile.avatarUrl = tempAvatarUrl;
             }
-            userProfile.hasCustomProfile = true;
+            window.userProfile.hasCustomProfile = true;
 
             saveUserProfile();
-            updateNavAvatar();
+            window.updateNavAvatar();
+            window.renderQuestions();
+
+            // クラウド上のプロフィールと過去のすべての投稿も一括更新
+            if (window.db && window.userProfile.email) {
+                if (btn) btn.disabled = true;
+                try {
+                    const effectiveName = getEffectiveDisplayName();
+                    const effectiveAvatar = getEffectiveAvatar();
+
+                    // 1. usersコレクションに最新プロフィールを保存
+                    await window.setDoc(window.doc(window.db, "users", window.userProfile.email), {
+                        name: window.userProfile.name,
+                        avatarUrl: window.userProfile.avatarUrl,
+                        isAnonymous: window.userProfile.isAnonymous,
+                        updatedAt: Date.now()
+                    }, { merge: true });
+
+                    // 2. 過去の自分の質問・回答の保存データも一括更新（バッチ処理）
+                    const batch = window.writeBatch(window.db);
+                    let hasUpdates = false;
+
+                    window.questions.forEach(q => {
+                        let needUpdate = false;
+                        const updatePayload = {};
+
+                        if (q.authorEmail === window.userProfile.email) {
+                            updatePayload.author = effectiveName;
+                            updatePayload.authorAvatar = effectiveAvatar;
+                            needUpdate = true;
+                        }
+
+                        if (Array.isArray(q.answers) && q.answers.length > 0) {
+                            let answerChanged = false;
+                            const updatedAnswers = q.answers.map(a => {
+                                if (a.authorEmail === window.userProfile.email) {
+                                    answerChanged = true;
+                                    return {
+                                        ...a,
+                                        author: effectiveName,
+                                        authorAvatar: effectiveAvatar
+                                    };
+                                }
+                                return a;
+                            });
+                            if (answerChanged) {
+                                updatePayload.answers = updatedAnswers;
+                                needUpdate = true;
+                            }
+                        }
+
+                        if (needUpdate) {
+                            batch.update(window.doc(window.db, "questions", q.id), updatePayload);
+                            hasUpdates = true;
+                        }
+                    });
+
+                    if (hasUpdates) {
+                        await batch.commit();
+                    }
+                } catch (err) {
+                    console.warn("Profile batch sync notice:", err);
+                } finally {
+                    if (btn) btn.disabled = false;
+                }
+            }
+
             closeProfileModal();
-            showToast(isAnon ? '匿名モードに設定しました' : 'プロフィールを保存しました！', 'success');
+            showToast(isAnon ? '匿名モードに設定し、過去の投稿も更新しました' : 'プロフィールを保存し、過去の投稿も更新しました！', 'success');
         }
 
         function selectCategory(id) {
             selectedCategory = id;
             renderCategories();
-            renderQuestions();
+            window.renderQuestions();
         }
 
         function handleSearch(e) {
             searchQuery = e.target.value.toLowerCase();
-            renderQuestions();
+            window.renderQuestions();
         }
 
         window.renderQuestions = function() {
@@ -526,18 +646,20 @@
             }
 
             container.innerHTML = filtered.map(q => {
-                const isLiked = userProfile.email && q.likedUsers && q.likedUsers.includes(userProfile.email);
-                const isAuthor = userProfile.email && q.authorEmail === userProfile.email;
+                const isLiked = window.userProfile.email && q.likedUsers && q.likedUsers.includes(window.userProfile.email);
+                const isAuthor = window.userProfile.email && q.authorEmail === window.userProfile.email;
                 const answersList = q.answers || [];
-                const authorAvatar = q.authorAvatar || "https://api.dicebear.com/7.x/bottts/svg?seed=Student1";
+                
+                // リアルタイムに最新の表示名とアイコンを解決
+                const authorInfo = resolveAuthorDisplay(q.authorEmail, q.author, q.authorAvatar);
 
                 return `
                     <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
                         <div class="flex items-center justify-between flex-wrap gap-2">
                             <div class="flex items-center gap-2.5">
-                                <img src="${escapeHtml(authorAvatar)}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-slate-200 bg-slate-50">
+                                <img src="${escapeHtml(authorInfo.avatar)}" alt="avatar" class="w-7 h-7 rounded-full object-cover border border-slate-200 bg-slate-50">
                                 <span class="bg-indigo-50 text-indigo-600 text-xs px-2.5 py-1 rounded-md font-semibold">${escapeHtml(q.category || '全般')}</span>
-                                <span class="text-xs font-bold text-slate-600">${escapeHtml(q.author || '匿名')}</span>
+                                <span class="text-xs font-bold text-slate-600">${escapeHtml(authorInfo.name)}</span>
                             </div>
                             ${isAuthor ? `
                                 <div class="flex items-center gap-1.5">
@@ -571,14 +693,14 @@
                             ` : `
                                 <div class="space-y-2">
                                     ${answersList.map(a => {
-                                        const isAnswerAuthor = userProfile.email && a.authorEmail === userProfile.email;
-                                        const ansAvatar = a.authorAvatar || "https://api.dicebear.com/7.x/bottts/svg?seed=Student1";
+                                        const isAnswerAuthor = window.userProfile.email && a.authorEmail === window.userProfile.email;
+                                        const ansInfo = resolveAuthorDisplay(a.authorEmail, a.author, a.authorAvatar);
                                         return `
                                             <div class="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
                                                 <div class="flex items-center justify-between">
                                                     <div class="flex items-center gap-2">
-                                                        <img src="${escapeHtml(ansAvatar)}" alt="avatar" class="w-5 h-5 rounded-full object-cover border border-slate-200">
-                                                        <span class="text-xs font-bold text-slate-700">${escapeHtml(a.author || '匿名')}</span>
+                                                        <img src="${escapeHtml(ansInfo.avatar)}" alt="avatar" class="w-5 h-5 rounded-full object-cover border border-slate-200">
+                                                        <span class="text-xs font-bold text-slate-700">${escapeHtml(ansInfo.name)}</span>
                                                     </div>
                                                     ${isAnswerAuthor ? `
                                                         <button onclick="deleteAnswer('${q.id}', '${a.id}')" class="text-[11px] text-slate-400 hover:text-red-500 transition-colors" title="回答を削除">
@@ -595,7 +717,7 @@
 
                             <!-- Answer Form -->
                             <form onsubmit="submitAnswer(event, '${q.id}')" class="flex gap-2 pt-2">
-                                <input type="text" id="answer-input-${q.id}" required placeholder="${userProfile.isAnonymous ? '匿名で回答を入力...' : '回答を入力...'}" class="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none focus:border-brand-500">
+                                <input type="text" id="answer-input-${q.id}" required placeholder="${window.userProfile.isAnonymous ? '匿名で回答を入力...' : '回答を入力...'}" class="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-xs outline-none focus:border-brand-500">
                                 <button type="submit" class="bg-brand-600 hover:bg-brand-700 text-white font-bold px-3 py-2 rounded-xl text-xs shadow-sm transition-all">回答する</button>
                             </form>
                         </div>
@@ -643,7 +765,7 @@
 
         async function submitAnswer(e, questionId) {
             e.preventDefault();
-            if (!userProfile.email) {
+            if (!window.userProfile.email) {
                 document.getElementById('auth-overlay').classList.remove('hidden');
                 return;
             }
@@ -662,7 +784,7 @@
                 id: String(Date.now()),
                 author: getEffectiveDisplayName(),
                 authorAvatar: getEffectiveAvatar(),
-                authorEmail: userProfile.email,
+                authorEmail: window.userProfile.email,
                 body: text,
                 createdAt: Date.now()
             });
@@ -683,7 +805,7 @@
         }
 
         async function toggleLike(id) {
-            if (!userProfile.email) {
+            if (!window.userProfile.email) {
                 document.getElementById('auth-overlay').classList.remove('hidden');
                 return;
             }
@@ -691,14 +813,14 @@
             if (!q) return;
 
             let likedUsers = q.likedUsers ? [...q.likedUsers] : [];
-            const index = likedUsers.indexOf(userProfile.email);
+            const index = likedUsers.indexOf(window.userProfile.email);
             let newLikes = q.likes || 0;
 
             if (index > -1) {
                 likedUsers.splice(index, 1);
                 newLikes = Math.max(0, newLikes - 1);
             } else {
-                likedUsers.push(userProfile.email);
+                likedUsers.push(window.userProfile.email);
                 newLikes += 1;
             }
 
@@ -716,9 +838,9 @@
         }
 
         function handleAskClick() {
-            if (userProfile.email) {
+            if (window.userProfile.email) {
                 document.getElementById('edit-question-id').value = '';
-                document.getElementById('modal-form-title').textContent = userProfile.isAnonymous ? '質問を投稿する（匿名モード）' : '質問を投稿する';
+                document.getElementById('modal-form-title').textContent = window.userProfile.isAnonymous ? '質問を投稿する（匿名モード）' : '質問を投稿する';
                 document.getElementById('question-title').value = '';
                 document.getElementById('question-body').value = '';
                 document.getElementById('ask-modal').classList.remove('hidden');
@@ -762,7 +884,7 @@
                         await window.addDoc(window.collection(window.db, "questions"), {
                             author: getEffectiveDisplayName(),
                             authorAvatar: getEffectiveAvatar(),
-                            authorEmail: userProfile.email,
+                            authorEmail: window.userProfile.email,
                             category: category,
                             title: title,
                             body: body,
@@ -794,13 +916,13 @@
             if (saved) {
                 try {
                     const parsed = JSON.parse(saved);
-                    if (parsed && typeof parsed === 'object') userProfile = { ...userProfile, ...parsed };
+                    if (parsed && typeof parsed === 'object') window.userProfile = { ...window.userProfile, ...parsed };
                 } catch (e) {}
             }
         }
 
         function saveUserProfile() {
-            localStorage.setItem('chiebukuro_user_profile', JSON.stringify(userProfile));
+            localStorage.setItem('chiebukuro_user_profile', JSON.stringify(window.userProfile));
         }
 
         window.signInWithGoogle = async function() {
@@ -826,41 +948,43 @@
         };
 
         window.onGoogleSignInSuccess = function(user) {
-            userProfile.email = user.email || "";
-            if (!userProfile.hasCustomProfile) {
-                if (user.displayName) userProfile.name = user.displayName;
-                if (user.photoURL) userProfile.avatarUrl = user.photoURL;
+            window.userProfile.email = user.email || "";
+            if (window.userProfilesMap && window.userProfilesMap[window.userProfile.email]) {
+                window.userProfile = { ...window.userProfile, ...window.userProfilesMap[window.userProfile.email] };
+            } else if (!window.userProfile.hasCustomProfile) {
+                if (user.displayName) window.userProfile.name = user.displayName;
+                if (user.photoURL) window.userProfile.avatarUrl = user.photoURL;
             }
 
             saveUserProfile();
             document.getElementById('auth-overlay').classList.add('hidden');
-            updateNavAvatar();
+            window.updateNavAvatar();
             document.getElementById('nav-auth-badge').className = "absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full";
             renderGoogleAccountStatus();
-            renderQuestions();
+            window.renderQuestions();
         };
 
         window.onSignOutSuccess = function() {
-            userProfile.email = "";
+            window.userProfile.email = "";
             saveUserProfile();
-            updateNavAvatar();
+            window.updateNavAvatar();
             document.getElementById('nav-auth-badge').className = "absolute bottom-0 right-0 w-3 h-3 bg-slate-400 border-2 border-white rounded-full";
             renderGoogleAccountStatus();
-            renderQuestions();
+            window.renderQuestions();
         };
 
         function renderGoogleAccountStatus() {
             const container = document.getElementById('google-account-status');
             if (!container) return;
 
-            if (userProfile.email) {
+            if (window.userProfile.email) {
                 container.innerHTML = `
                     <div class="flex items-center justify-between">
                         <div class="text-left">
                             <div class="text-xs font-bold text-emerald-700 flex items-center gap-1">
                                 <i class="fa-solid fa-circle-check"></i> Google連携中
                             </div>
-                            <div class="text-[11px] text-slate-500">${escapeHtml(userProfile.email)}</div>
+                            <div class="text-[11px] text-slate-500">${escapeHtml(window.userProfile.email)}</div>
                         </div>
                         <button type="button" onclick="window.signOutAccount()" class="px-3 py-1.5 bg-slate-200 text-xs font-bold rounded-xl hover:bg-slate-300">ログアウト</button>
                     </div>
