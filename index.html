@@ -112,22 +112,29 @@
                 }
             });
 
-            // 全ユーザーの最新プロフィールをリアルタイム監視
+            // 全ユーザーの最新プロフィールをリアルタイム監視（他人の画面にも即反映）
             window.userProfilesMap = {};
             onSnapshot(collection(window.db, "users"), (snapshot) => {
+                const updatedMap = {};
                 snapshot.docs.forEach(docSnap => {
-                    window.userProfilesMap[docSnap.id] = docSnap.data();
+                    const key = docSnap.id.toLowerCase().trim();
+                    updatedMap[key] = docSnap.data();
                 });
+                window.userProfilesMap = updatedMap;
+
                 // 自分のプロフィールがクラウドにあれば同期
-                if (window.userProfile && window.userProfile.email && window.userProfilesMap[window.userProfile.email]) {
-                    const cloudProf = window.userProfilesMap[window.userProfile.email];
-                    window.userProfile = { ...window.userProfile, ...cloudProf };
-                    localStorage.setItem('chiebukuro_user_profile', JSON.stringify(window.userProfile));
-                    if (window.updateNavAvatar) window.updateNavAvatar();
+                if (window.userProfile && window.userProfile.email) {
+                    const myKey = window.userProfile.email.toLowerCase().trim();
+                    if (window.userProfilesMap[myKey]) {
+                        const cloudProf = window.userProfilesMap[myKey];
+                        window.userProfile = { ...window.userProfile, ...cloudProf };
+                        localStorage.setItem('chiebukuro_user_profile', JSON.stringify(window.userProfile));
+                        if (window.updateNavAvatar) window.updateNavAvatar();
+                    }
                 }
                 if (window.renderQuestions) window.renderQuestions();
             }, (error) => {
-                console.warn("Users subscription notice:", error);
+                console.error("Users subscription error:", error);
             });
 
             // 質問一覧をリアルタイム監視
@@ -237,7 +244,7 @@
             </button>
             <div class="text-center mb-5">
                 <h3 class="text-xl font-extrabold text-slate-800">プロフィール設定</h3>
-                <p class="text-xs text-slate-500 mt-1">変更すると過去の投稿の表示もすべて最新のプロフィールに更新されます</p>
+                <p class="text-xs text-slate-500 mt-1">変更すると全員の画面で過去の投稿の表示も最新に更新されます</p>
             </div>
 
             <!-- Google Account Status -->
@@ -291,7 +298,7 @@
                 </div>
 
                 <button type="submit" id="save-profile-btn" class="w-full py-3 bg-gradient-to-r from-brand-600 to-sakura-500 hover:from-brand-700 hover:to-sakura-600 text-white font-bold rounded-xl shadow-md transition-all">
-                    設定を保存して投稿にも反映する
+                    設定を保存して全員に反映する
                 </button>
             </form>
         </div>
@@ -380,6 +387,10 @@
             updateNavAvatar();
         });
 
+        function normalizeEmail(email) {
+            return (email || '').toLowerCase().trim();
+        }
+
         function renderCategories() {
             const list = document.getElementById('category-list');
             const mobileList = document.getElementById('mobile-category-list');
@@ -425,7 +436,7 @@
                 const img = new Image();
                 img.onload = function() {
                     const canvas = document.createElement('canvas');
-                    const maxSize = 140;
+                    const maxSize = 120;
                     let width = img.width;
                     let height = img.height;
 
@@ -445,7 +456,7 @@
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75);
                     tempAvatarUrl = compressedDataUrl;
                     document.getElementById('modal-avatar-preview').src = compressedDataUrl;
                 };
@@ -475,18 +486,21 @@
                 : (window.userProfile.avatarUrl || "https://api.dicebear.com/7.x/bottts/svg?seed=Student1");
         }
 
-        // 最新のユーザープロフィールをリアルタイム解決するヘルパー関数
+        // 全ユーザーの最新プロフィールをリアルタイム解決する関数
         function resolveAuthorDisplay(email, fallbackName, fallbackAvatar) {
-            // 自分自身の場合は即座に最新のローカル状態を優先
-            if (window.userProfile.email && email === window.userProfile.email) {
+            const key = normalizeEmail(email);
+            const myKey = normalizeEmail(window.userProfile.email);
+
+            // 自分自身の場合
+            if (myKey && key === myKey) {
                 return {
                     name: getEffectiveDisplayName(),
                     avatar: getEffectiveAvatar()
                 };
             }
-            // 他ユーザーの場合はFirestoreのusersマップから最新情報を取得
-            if (email && window.userProfilesMap && window.userProfilesMap[email]) {
-                const live = window.userProfilesMap[email];
+            // 他ユーザーの場合はFirestoreのusersマップからリアルタイム取得
+            if (key && window.userProfilesMap && window.userProfilesMap[key]) {
+                const live = window.userProfilesMap[key];
                 if (live.isAnonymous) {
                     return {
                         name: "匿名",
@@ -529,6 +543,11 @@
 
         async function saveProfileSettings(e) {
             e.preventDefault();
+            if (!window.userProfile.email) {
+                showToast('先にGoogleアカウントでログインしてください', 'error');
+                return;
+            }
+
             const isAnon = document.getElementById('profile-anonymous-toggle').checked;
             const newName = document.getElementById('profile-name-input').value.trim();
             const btn = document.getElementById('save-profile-btn');
@@ -546,22 +565,23 @@
             window.updateNavAvatar();
             window.renderQuestions();
 
-            // クラウド上のプロフィールと過去のすべての投稿も一括更新
             if (window.db && window.userProfile.email) {
                 if (btn) btn.disabled = true;
                 try {
+                    const myKey = normalizeEmail(window.userProfile.email);
                     const effectiveName = getEffectiveDisplayName();
                     const effectiveAvatar = getEffectiveAvatar();
 
-                    // 1. usersコレクションに最新プロフィールを保存
-                    await window.setDoc(window.doc(window.db, "users", window.userProfile.email), {
+                    // 1. usersコレクションへ保存（他ユーザーの画面に即座に反映させる）
+                    await window.setDoc(window.doc(window.db, "users", myKey), {
+                        email: myKey,
                         name: window.userProfile.name,
                         avatarUrl: window.userProfile.avatarUrl,
                         isAnonymous: window.userProfile.isAnonymous,
                         updatedAt: Date.now()
                     }, { merge: true });
 
-                    // 2. 過去の自分の質問・回答の保存データも一括更新（バッチ処理）
+                    // 2. 過去の質問・回答ドキュメント内のデータも一括更新
                     const batch = window.writeBatch(window.db);
                     let hasUpdates = false;
 
@@ -569,7 +589,7 @@
                         let needUpdate = false;
                         const updatePayload = {};
 
-                        if (q.authorEmail === window.userProfile.email) {
+                        if (normalizeEmail(q.authorEmail) === myKey) {
                             updatePayload.author = effectiveName;
                             updatePayload.authorAvatar = effectiveAvatar;
                             needUpdate = true;
@@ -578,7 +598,7 @@
                         if (Array.isArray(q.answers) && q.answers.length > 0) {
                             let answerChanged = false;
                             const updatedAnswers = q.answers.map(a => {
-                                if (a.authorEmail === window.userProfile.email) {
+                                if (normalizeEmail(a.authorEmail) === myKey) {
                                     answerChanged = true;
                                     return {
                                         ...a,
@@ -603,15 +623,16 @@
                     if (hasUpdates) {
                         await batch.commit();
                     }
+
+                    closeProfileModal();
+                    showToast(isAnon ? '匿名モードに設定し、全員の画面に反映しました' : 'プロフィールを保存し、全員の画面に反映しました！', 'success');
                 } catch (err) {
-                    console.warn("Profile batch sync notice:", err);
+                    console.error("Profile cloud sync error:", err);
+                    showToast('クラウド同期エラー（Firebaseルールを確認してください）: ' + err.message, 'error');
                 } finally {
                     if (btn) btn.disabled = false;
                 }
             }
-
-            closeProfileModal();
-            showToast(isAnon ? '匿名モードに設定し、過去の投稿も更新しました' : 'プロフィールを保存し、過去の投稿も更新しました！', 'success');
         }
 
         function selectCategory(id) {
@@ -645,12 +666,13 @@
                 return;
             }
 
+            const myKey = normalizeEmail(window.userProfile.email);
+
             container.innerHTML = filtered.map(q => {
-                const isLiked = window.userProfile.email && q.likedUsers && q.likedUsers.includes(window.userProfile.email);
-                const isAuthor = window.userProfile.email && q.authorEmail === window.userProfile.email;
+                const isLiked = myKey && q.likedUsers && q.likedUsers.some(u => normalizeEmail(u) === myKey);
+                const isAuthor = myKey && normalizeEmail(q.authorEmail) === myKey;
                 const answersList = q.answers || [];
                 
-                // リアルタイムに最新の表示名とアイコンを解決
                 const authorInfo = resolveAuthorDisplay(q.authorEmail, q.author, q.authorAvatar);
 
                 return `
@@ -693,7 +715,7 @@
                             ` : `
                                 <div class="space-y-2">
                                     ${answersList.map(a => {
-                                        const isAnswerAuthor = window.userProfile.email && a.authorEmail === window.userProfile.email;
+                                        const isAnswerAuthor = myKey && normalizeEmail(a.authorEmail) === myKey;
                                         const ansInfo = resolveAuthorDisplay(a.authorEmail, a.author, a.authorAvatar);
                                         return `
                                             <div class="bg-white p-3 rounded-lg border border-slate-200 space-y-1.5">
@@ -784,7 +806,7 @@
                 id: String(Date.now()),
                 author: getEffectiveDisplayName(),
                 authorAvatar: getEffectiveAvatar(),
-                authorEmail: window.userProfile.email,
+                authorEmail: normalizeEmail(window.userProfile.email),
                 body: text,
                 createdAt: Date.now()
             });
@@ -812,15 +834,16 @@
             const q = window.questions.find(item => item.id === id);
             if (!q) return;
 
+            const myKey = normalizeEmail(window.userProfile.email);
             let likedUsers = q.likedUsers ? [...q.likedUsers] : [];
-            const index = likedUsers.indexOf(window.userProfile.email);
+            const index = likedUsers.findIndex(u => normalizeEmail(u) === myKey);
             let newLikes = q.likes || 0;
 
             if (index > -1) {
                 likedUsers.splice(index, 1);
                 newLikes = Math.max(0, newLikes - 1);
             } else {
-                likedUsers.push(window.userProfile.email);
+                likedUsers.push(myKey);
                 newLikes += 1;
             }
 
@@ -884,7 +907,7 @@
                         await window.addDoc(window.collection(window.db, "questions"), {
                             author: getEffectiveDisplayName(),
                             authorAvatar: getEffectiveAvatar(),
-                            authorEmail: window.userProfile.email,
+                            authorEmail: normalizeEmail(window.userProfile.email),
                             category: category,
                             title: title,
                             body: body,
@@ -947,13 +970,31 @@
             }
         };
 
-        window.onGoogleSignInSuccess = function(user) {
-            window.userProfile.email = user.email || "";
-            if (window.userProfilesMap && window.userProfilesMap[window.userProfile.email]) {
-                window.userProfile = { ...window.userProfile, ...window.userProfilesMap[window.userProfile.email] };
-            } else if (!window.userProfile.hasCustomProfile) {
-                if (user.displayName) window.userProfile.name = user.displayName;
-                if (user.photoURL) window.userProfile.avatarUrl = user.photoURL;
+        window.onGoogleSignInSuccess = async function(user) {
+            const myKey = normalizeEmail(user.email);
+            window.userProfile.email = myKey;
+
+            if (window.userProfilesMap && window.userProfilesMap[myKey]) {
+                window.userProfile = { ...window.userProfile, ...window.userProfilesMap[myKey] };
+            } else {
+                if (!window.userProfile.hasCustomProfile) {
+                    if (user.displayName) window.userProfile.name = user.displayName;
+                    if (user.photoURL) window.userProfile.avatarUrl = user.photoURL;
+                }
+                // 初回ログイン時にusersコレクションへ初期登録
+                if (window.db && myKey) {
+                    try {
+                        await window.setDoc(window.doc(window.db, "users", myKey), {
+                            email: myKey,
+                            name: window.userProfile.name,
+                            avatarUrl: window.userProfile.avatarUrl,
+                            isAnonymous: !!window.userProfile.isAnonymous,
+                            updatedAt: Date.now()
+                        }, { merge: true });
+                    } catch (e) {
+                        console.warn("Initial profile sync notice:", e);
+                    }
+                }
             }
 
             saveUserProfile();
@@ -1012,7 +1053,7 @@
             toast.className = `p-3 rounded-xl text-xs font-bold text-white shadow-lg pointer-events-auto transition-all transform translate-y-2 ${type === 'error' ? 'bg-red-500' : type === 'success' ? 'bg-emerald-500' : 'bg-slate-700'}`;
             toast.textContent = msg;
             container.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
+            setTimeout(() => toast.remove(), 3500);
         }
     </script>
 </body>
